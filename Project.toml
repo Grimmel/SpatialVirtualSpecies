@@ -1,0 +1,4 @@
+name = "SpatialVirtualSpecies"
+uuid = "2c512a0c-4f15-4aae-83c3-7aaf3746ac50"
+authors = ["liam <liamgrimmett47@gmail.com>"]
+version = "0.1.0"
