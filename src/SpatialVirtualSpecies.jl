@@ -16,8 +16,19 @@ mutable struct SpeciesCellularAutomata <: AbstractSpeciesCellularAutomata
     # Dispersal parameters
     posSelector::AbstractPositionSelector
     dispersalProbability::Float64
-    maxNumberDispersers::Int64
 end
+
+mutable struct SpeciesCellularAutomataSuitWeighted <: AbstractSpeciesCellularAutomata
+    pa::Matrix{Float64}
+    pa_cart_index::Matrix{CartesianIndex{2}}
+    suitabilityInitial::Matrix{Float64}
+    suitabilityActive::Matrix{Float64}
+    # Dispersal parameters
+    posSelector::AbstractPositionSelector
+    dispersalProbability::Float64
+    meanNumberDispersers::Int64
+end
+
 mutable struct SpeciesCellularAutomataNeighbourEffect <: AbstractSpeciesCellularAutomata
     pa::Matrix{Float64}
     pa_cart_index::Matrix{CartesianIndex{2}}
@@ -26,7 +37,7 @@ mutable struct SpeciesCellularAutomataNeighbourEffect <: AbstractSpeciesCellular
     # Dispersal parameters
     posSelector::AbstractPositionSelector
     dispersalProbability::Float64
-    maxNumberDispersers::Int64
+    meanNumberDispersers::Int64
     # Weight parameters
     neighbourhoodParams::AbstractNeighbourhood
     neighbourSurvivalWeight::Float64
@@ -62,13 +73,17 @@ end
 Select a single cell to colonise
 
 """
-function neighbourHoodWeight(paNeighbourhood::Matrix{Float64},suitNeighbourhood::Matrix{Float64},weightMatrix::Matrix{Float64})
+function neighbourHoodWeight(paNeighbourhood::Matrix{Float64},suitNeighbourhood::Matrix{Float64})
     oc = vec(paNeighbourhood)
     su = vec(suitNeighbourhood)
     weight = oc.*su
     #weight = oc.*vec(weightMatrix[idxYMin:idxYMax,idxXMin:idxXMax])
     return(sum(weight))
 end
+
+#TODO
+# function checkNeighbourhoodWeightDistribution(suitNeighbourhood::Matrix{Float64})
+
 """
     colonise(ca)
 
@@ -102,7 +117,7 @@ function coloniseSuitWeight(ca::SpeciesCellularAutomata)
     dCells = selectProportion(ca.pa,ca.pa_cart_index,ca.dispersalProbability)
     for i in dCells
         # Determine maximum number of dispersers scaled by suitabiility
-        meanNumDispersers = ca.maxNumberDispersers*ca.suitabilityActive[i]
+        meanNumDispersers = ca.meanNumberDispersers*ca.suitabilityActive[i]
         if meanNumDispersers > 0.0
             numberDispersers = rand(rng,Poisson(meanNumDispersers))
             for j in 1:numberDispersers
@@ -140,11 +155,11 @@ function coloniseNeighbourWeight(ca::SpeciesCellularAutomataNeighbourEffect)
         cellIndex = dCells[i]
         paNeighbourhood = getNeighbourhood(ca.neighbourhoodParams,ca.pa,cellIndex,shp)
         suitNeighbourhood = getWeightedNeighbourhood(ca.neighbourhoodParams,ca.suitabilityActive,ca.weightMatrix,cellIndex,shp)
-        neighbourWeight = neighbourHoodWeight(paNeighbourhood,suitNeighbourhood,ca.weightMatrix)
+        neighbourWeight = neighbourHoodWeight(paNeighbourhood,suitNeighbourhood)
         dispWeight = neighbourWeight * ca.neighbourDispersalWeight
         # Determine maximum number of dispersers scaled by suitabiility
         dispersalMultiplier = 1/(1+MathConstants.e^(-10*(ca.suitabilityActive[cellIndex]-(1-dispWeight))))
-        meanNumDispersers = (ca.suitabilityActive[cellIndex] + (1-ca.suitabilityActive[cellIndex])*dispersalMultiplier)*ca.maxNumberDispersers
+        meanNumDispersers = (1 + (ca.suitabilityActive[cellIndex]*dispersalMultiplier))*ca.meanNumberDispersers
 
         numberDispersers = rand(rng,Poisson(meanNumDispersers))
         for j in 1:numberDispersers
