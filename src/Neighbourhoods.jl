@@ -85,6 +85,5 @@ function getWeightedNeighbourhood(nb_params::MooreNeighbours,ras::Matrix{Float64
         xmax = shape[2]
         idxXMax = (nb_params.r+1)+shape[2]-coord[2]
     end
-    neighbourhood = ras[ymin:ymax,xmin:xmax].*weights[idxYMin:idxYMax,idxXMin:idxXMax]
-    return(neighbourhood)
+    return(ras[ymin:ymax,xmin:xmax].*weights[idxYMin:idxYMax,idxXMin:idxXMax])
 end

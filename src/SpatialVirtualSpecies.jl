@@ -1,7 +1,7 @@
 module SpatialVirtualSpecies
 include("ColoniseBehaviour.jl")
 include("Neighbourhoods.jl")
-
+include("Utils.jl")
 using Distributions
 using Random
 using StatsBase
@@ -18,7 +18,7 @@ mutable struct SpeciesCellularAutomata <: AbstractSpeciesCellularAutomata
     dispersalProbability::Float64
 end
 
-mutable struct SpeciesCellularAutomataSuitWeighted <: AbstractSpeciesCellularAutomata
+mutable struct SpeciesCellularAutomataSuitabilityWeighted <: AbstractSpeciesCellularAutomata
     pa::Matrix{Float64}
     pa_cart_index::Matrix{CartesianIndex{2}}
     suitabilityInitial::Matrix{Float64}
@@ -29,7 +29,7 @@ mutable struct SpeciesCellularAutomataSuitWeighted <: AbstractSpeciesCellularAut
     meanNumberDispersers::Int64
 end
 
-mutable struct SpeciesCellularAutomataNeighbourEffect <: AbstractSpeciesCellularAutomata
+mutable struct SpeciesCellularAutomataNeighbourhoodWeighted <: AbstractSpeciesCellularAutomata
     pa::Matrix{Float64}
     pa_cart_index::Matrix{CartesianIndex{2}}
     suitabilityInitial::Matrix{Float64}
@@ -111,7 +111,7 @@ has
 
 
 """
-function coloniseSuitWeight(ca::SpeciesCellularAutomata)
+function colonise(ca::SpeciesCellularAutomataSuitabilityWeighted)
     rng = MersenneTwister()
     shape = size(ca.pa)
     dCells = selectProportion(ca.pa,ca.pa_cart_index,ca.dispersalProbability)
@@ -145,7 +145,7 @@ Note: As this is neighbour weighted, the order of cells are randomised to preven
       neighbourhood weights. This would effectively make the neighbourhood effects
       synchronus (i.e. all processes happen at the same time, instantly).
 """
-function coloniseNeighbourWeight(ca::SpeciesCellularAutomataNeighbourEffect)
+function colonise(ca::SpeciesCellularAutomataNeighbourhoodWeighted)
     rng = MersenneTwister()
     shp = size(ca.pa)
     dCells = selectProportion(ca.pa,ca.pa_cart_index,ca.dispersalProbability)
@@ -183,6 +183,17 @@ function extinction(ca::SpeciesCellularAutomata)
         end
     end
 end
+function extinction(ca::SpeciesCellularAutomataSuitabilityWeighted)
+    rng = MersenneTwister()
+    for idx in ca.pa_cart_index
+        if ca.pa[idx] === 1.0
+            survived = rand(rng,Bernoulli(ca.suitabilityActive[idx]),1)
+            if survived[1] == false
+                ca.pa[idx] = 0
+            end
+        end
+    end
+end
 """
     extinctionNeighbourWeight(ca)
 
@@ -196,7 +207,7 @@ Note: As this is neighbour weighted, the order of cells are randomised to preven
       neighbourhood weights. This would effectively make the neighbourhood effects
       synchronus (i.e. all processes happen at the same time, instantly).
 """
-function extinctionNeighbourWeight(ca::SpeciesCellularAutomataNeighbourEffect)
+function extinction(ca::SpeciesCellularAutomataNeighbourhoodWeighted)
     rng = MersenneTwister()
     # Randomise cell index to prevent bias from the neighbourhood weighting
     # Alternative could be to copy the the pa array.
@@ -209,10 +220,10 @@ function extinctionNeighbourWeight(ca::SpeciesCellularAutomataNeighbourEffect)
             # Determine the neighbourhood weighted survival probability
             paNeighbourhood = getNeighbourhood(ca.neighbourhoodParams,ca.pa,cellIndex,shp)
             suitNeighbourhood = getWeightedNeighbourhood(ca.neighbourhoodParams,ca.suitabilityActive,ca.weightMatrix,cellIndex,shp)
-            neighbourWeight = neighbourHoodWeight(paNeighbourhood,suitNeighbourhood,ca.weightMatrix)
+            neighbourWeight = neighbourHoodWeight(paNeighbourhood,suitNeighbourhood)
             survWeight = neighbourWeight * ca.neighbourSurvivalWeight
             # Logistic function to scale survival proba
-            sf = 1/(1+MathConstants.e^(-10*(ca.suitabilityActive[cellIndex]-(1-survWeight))))
+            sf = 0.9/(1+MathConstants.e^(-10*(ca.suitabilityActive[cellIndex]-(1-survWeight))))
             survivalProbability = ca.suitabilityActive[cellIndex] + (1-ca.suitabilityActive[cellIndex])*sf
             # Determine survival
             survived = sample(rng,[0,1],ProbabilityWeights([1.0-survivalProbability,survivalProbability]))
@@ -245,7 +256,7 @@ interacting species no long occupies the cell in subsequent iterations.
 
 """
 function interact(interaction::Interaction,speciesA::AbstractSpeciesCellularAutomata,speciesB::AbstractSpeciesCellularAutomata)
-    speciesA.suitabilityActive = speciesA.suitabilityInitial .* (1 .- (interaction.effectSpeciesBonA .* speciesB.pa))
-    speciesB.suitabilityActive = speciesB.suitabilityInitial .* (1 .- (interaction.effectSpeciesAonB .* speciesA.pa))
+    speciesA.suitabilityActive = speciesA.suitabilityInitial .- ( speciesA.suitabilityInitial.* (interaction.effectSpeciesBonA .* speciesB.pa))
+    speciesB.suitabilityActive = speciesB.suitabilityInitial .- (speciesB.suitabilityInitial .* (interaction.effectSpeciesAonB .* speciesA.pa))
 end
 end # module
