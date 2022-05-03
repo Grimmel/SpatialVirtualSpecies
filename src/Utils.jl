@@ -21,3 +21,17 @@ function generateStateLayer(suitability::Matrix{Float64},proportion::Float64,sui
     end
     return state
 end
+function getHeader(file,lines)
+    s = ""
+    open(file) do fobj
+        it = 1
+        for line in eachline(fobj)
+            s= s*(line)*"\n"
+            if it == lines
+                break
+            end
+            it = it + 1
+        end
+    end
+    return(s)
+end

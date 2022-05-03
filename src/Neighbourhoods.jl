@@ -5,6 +5,13 @@ struct IDW_MooreNeighbourhoodWeight <:AbstractNeighbourhoodWeightGenerator
     scale::Int64
     excludeCentre::Bool
 end
+"""
+    generateWeightMatrix()
+
+Obtains the neighbourhood of cells from a raster (ras) around the coordinate
+of the focal point (coord).
+
+"""
 function generateWeightMatrix(params::IDW_MooreNeighbourhoodWeight)
     w = 2*params.radius+1
     m = ones(w,w)
@@ -24,6 +31,7 @@ abstract type AbstractNeighbourhood end
 struct MooreNeighbours <:AbstractNeighbourhood
     r::Int64
 end
+
 # struct MooreToroidalNeighbours<:AbstractNeighbourhood
 #
 # end
@@ -35,7 +43,6 @@ Obtains the neighbourhood of cells from a raster (ras) around the coordinate
 of the focal point (coord).
 
 """
-#function getNeighbourhood(nb_params::MooreNeighbours,ras::Matrix{Float64},coord::CartesianIndex,)
 function getNeighbourhood(nb_params::MooreNeighbours,ras::Matrix{Float64},coord::CartesianIndex,shape::Tuple)
     # Assumes square neighbourhood
     ymin = coord[1]-nb_params.r
@@ -86,4 +93,16 @@ function getWeightedNeighbourhood(nb_params::MooreNeighbours,ras::Matrix{Float64
         idxXMax = (nb_params.r+1)+shape[2]-coord[2]
     end
     return(ras[ymin:ymax,xmin:xmax].*weights[idxYMin:idxYMax,idxXMin:idxXMax])
+end
+"""
+    neighbourHoodWeight(ca)
+
+Calculate the weighting of a neighbourhood
+
+"""
+function neighbourHoodWeight(paNeighbourhood::Matrix{Float64},suitNeighbourhood::Matrix{Float64})
+    oc = vec(paNeighbourhood)
+    su = vec(suitNeighbourhood)
+    weight = oc.*su
+    return(sum(weight))
 end

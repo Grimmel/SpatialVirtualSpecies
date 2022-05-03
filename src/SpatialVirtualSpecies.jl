@@ -7,6 +7,8 @@ using Random
 using StatsBase
 
 abstract type AbstractSpeciesCellularAutomata end
+abstract type AbstractScalingParameters end
+
 
 mutable struct SpeciesCellularAutomata <: AbstractSpeciesCellularAutomata
     pa::Matrix{Float64}
@@ -42,10 +44,27 @@ mutable struct SpeciesCellularAutomataNeighbourhoodWeighted <: AbstractSpeciesCe
     neighbourhoodParams::AbstractNeighbourhood
     neighbourSurvivalWeight::Float64
     neighbourDispersalWeight::Float64
+    dispersalScaleParams::AbstractScalingParameters
+    survivalScaleParams::AbstractScalingParameters
     ### TODO: Check neighbourhoodParams Radius = weightMatrix radius
     weightMatrix::Matrix{Float64}
 end
 
+mutable struct LogisticScalingParameters <: AbstractScalingParameters
+    maxVal::Float64
+    k::Float64
+    LogisticScalingParameters(;maxVal=0.9,k=-10) = new(maxVal,k)
+end
+
+"""
+    scaleValue(params,suitVal,weightVal)
+
+A function to scale the suitability values by a given weight
+
+"""
+function scaleValue(params::LogisticScalingParameters,suitVal::Float64,weightVal::Float64)
+    return params.maxVal/(1+MathConstants.e^(params.k*(ca.suitabilityActive[cellIndex]-(1-dispWeight))))
+end
 """
     selectProportion(pa,caIndex,dispersalProbability)
 
@@ -67,22 +86,7 @@ function selectProportion(pa::Matrix{Float64},caIndex::Array{CartesianIndex{2},2
     end
     dispersers = sample(total,rand(Binomial(nPresences,probability)))
 end
-"""
-    neighbourHoodWeight(ca)
 
-Select a single cell to colonise
-
-"""
-function neighbourHoodWeight(paNeighbourhood::Matrix{Float64},suitNeighbourhood::Matrix{Float64})
-    oc = vec(paNeighbourhood)
-    su = vec(suitNeighbourhood)
-    weight = oc.*su
-    #weight = oc.*vec(weightMatrix[idxYMin:idxYMax,idxXMin:idxXMax])
-    return(sum(weight))
-end
-
-#TODO
-# function checkNeighbourhoodWeightDistribution(suitNeighbourhood::Matrix{Float64})
 
 """
     colonise(ca)
@@ -148,19 +152,23 @@ Note: As this is neighbour weighted, the order of cells are randomised to preven
 function colonise(ca::SpeciesCellularAutomataNeighbourhoodWeighted)
     rng = MersenneTwister()
     shp = size(ca.pa)
+    # Select cells to be sources for colonisation
     dCells = selectProportion(ca.pa,ca.pa_cart_index,ca.dispersalProbability)
     # Random shuffle to avoid grid index bias due to order of applying this function
     idxShuffle = sample(collect(1:1:length(dCells)),length(dCells),replace=false)
     for i in idxShuffle
         cellIndex = dCells[i]
+        # Get the occurrences in the neighbourhood
         paNeighbourhood = getNeighbourhood(ca.neighbourhoodParams,ca.pa,cellIndex,shp)
+        # Get the suitabilty neighbourhood weighted by the weight matrix
         suitNeighbourhood = getWeightedNeighbourhood(ca.neighbourhoodParams,ca.suitabilityActive,ca.weightMatrix,cellIndex,shp)
+        # Calculate the neighbourhood weight
         neighbourWeight = neighbourHoodWeight(paNeighbourhood,suitNeighbourhood)
         dispWeight = neighbourWeight * ca.neighbourDispersalWeight
         # Determine maximum number of dispersers scaled by suitabiility
-        dispersalMultiplier = 1/(1+MathConstants.e^(-10*(ca.suitabilityActive[cellIndex]-(1-dispWeight))))
+        dispersalMultiplier = scaleValue(ca.dispersalScaleParams,ca.suitabilityActive[cellIndex],dispWeight)
+        #dispersalMultiplier = 1/(1+MathConstants.e^(-10*(ca.suitabilityActive[cellIndex]-(1-dispWeight))))
         meanNumDispersers = (1 + (ca.suitabilityActive[cellIndex]*dispersalMultiplier))*ca.meanNumberDispersers
-
         numberDispersers = rand(rng,Poisson(meanNumDispersers))
         for j in 1:numberDispersers
             newXY = selectColonisedCoordinate(ca.posSelector,cellIndex,rng)
@@ -170,8 +178,6 @@ function colonise(ca::SpeciesCellularAutomataNeighbourhoodWeighted)
         end
     end
 end
-
-
 function extinction(ca::SpeciesCellularAutomata)
     rng = MersenneTwister()
     for idx in ca.pa_cart_index
@@ -195,7 +201,7 @@ function extinction(ca::SpeciesCellularAutomataSuitabilityWeighted)
     end
 end
 """
-    extinctionNeighbourWeight(ca)
+    extinction(ca)
 
 Each occupied cell is
 
@@ -222,8 +228,9 @@ function extinction(ca::SpeciesCellularAutomataNeighbourhoodWeighted)
             suitNeighbourhood = getWeightedNeighbourhood(ca.neighbourhoodParams,ca.suitabilityActive,ca.weightMatrix,cellIndex,shp)
             neighbourWeight = neighbourHoodWeight(paNeighbourhood,suitNeighbourhood)
             survWeight = neighbourWeight * ca.neighbourSurvivalWeight
-            # Logistic function to scale survival proba
-            sf = 0.9/(1+MathConstants.e^(-10*(ca.suitabilityActive[cellIndex]-(1-survWeight))))
+            # Scale survival probability
+            sf = scaleValue(ca.survivalScaleParams,ca.suitabilityActive[cellIndex],survWeight)
+            #sf = 0.9/(1+MathConstants.e^(-10*(ca.suitabilityActive[cellIndex]-(1-survWeight))))
             survivalProbability = ca.suitabilityActive[cellIndex] + (1-ca.suitabilityActive[cellIndex])*sf
             # Determine survival
             survived = sample(rng,[0,1],ProbabilityWeights([1.0-survivalProbability,survivalProbability]))
