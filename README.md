@@ -40,7 +40,7 @@ imshow(pa,cmap="gray")
 ```
 
 
-![png](img/readmeoutput_3_0.png)
+![png](img/readme/output_3_0.png)
 
 
 
