@@ -114,7 +114,7 @@ imshow(ca.pa,cmap="gray")
 ```
 
 
-![png](img/readmeoutput_11_0.png)
+![png](img/readme/output_11_0.png)
 
 
 
