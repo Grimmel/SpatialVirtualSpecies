@@ -1,6 +1,8 @@
 # EndOSim
 
-EndOSim is a tool for simulating virtual species occurrence maps for use in species distribution modelling experiments.
+EndOSim is a tool for simulating virtual species occurrence maps for use in species distribution modelling experiments. Often, these types of experiments use simulated species distributions that are obtained by defining a habitat suitabilty map with values ranging between zero and one, interpreted as a probability of occurrence. Bernoulli trials are applied to each cell in the map to determine if the cell is occupied or not.
+
+The limitation of this is that it does not incorporate spatially explicit processes that can influence species distribution characteristics in the real world. This tool gives users a simple way of incorporating movement, neighbourhood effects and species interactions to create more realistic virtual species distributions.
 
 ## Setting up a simulation
 
