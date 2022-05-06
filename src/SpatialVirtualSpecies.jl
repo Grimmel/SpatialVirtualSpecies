@@ -63,7 +63,7 @@ A function to scale the suitability values by a given weight
 
 """
 function scaleValue(params::LogisticScalingParameters,suitVal::Float64,weightVal::Float64)
-    return params.maxVal/(1+MathConstants.e^(params.k*(ca.suitabilityActive[cellIndex]-(1-dispWeight))))
+    return params.maxVal/(1+MathConstants.e^(params.k*(suitVal-(1-weightVal))))
 end
 """
     selectProportion(pa,caIndex,dispersalProbability)

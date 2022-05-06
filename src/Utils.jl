@@ -21,6 +21,7 @@ function generateStateLayer(suitability::Matrix{Float64},proportion::Float64,sui
     end
     return state
 end
+
 function getHeader(file,lines)
     s = ""
     open(file) do fobj
@@ -34,4 +35,12 @@ function getHeader(file,lines)
         end
     end
     return(s)
+end
+
+function neighbourhoodWeightDistribution(nb_params::MooreNeighbours,weightMatrix::Matrix{Float64},suitability::Matrix{Float64})
+    idx = CartesianIndex(suitability)
+    shp = shape(suitability)
+    for i in idx
+        wt = sum(getWeightedNeighbourhood(nb_params,suitability,weightMatrix,i,shp))
+    end
 end
