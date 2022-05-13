@@ -1,12 +1,23 @@
-# EndOSim
+# CASSOM
 
-EndOSim is a tool for simulating virtual species occurrence maps for use in species distribution modelling experiments. Often, these types of experiments use simulated species distributions that are obtained by defining a habitat suitabilty map with values ranging between zero and one, interpreted as a probability of occurrence. Bernoulli trials are applied to each cell in the map to determine if the cell is occupied or not.
-
-The limitation of this is that it does not incorporate spatially explicit processes that can influence species distribution characteristics in the real world. This tool gives users a simple way of incorporating movement, neighbourhood effects and species interactions to create more realistic virtual species distributions.
+CASSOM is a tool for simulating virtual species occurrence maps for use in species distribution modelling experiments.
 
 ## Setting up a simulation
 
-To begin setting up a simulation, we need to load in a habitat suitability raster in ascii format. It is also important that when loading the raster that we also use the getHeader() function to save the file header. This is important for exporting the virtual species distributions to file after running the simulations.
+The simulation requires three raster layers to control key functions and store the state variable.
+#### State layer (Species occurrences)
+This is a binary layer, with values representing an occupied state (1) and unoccupied state (0).
+#### Survival control layer
+This layer should have values ranging between zero and one, and is used to define the probability of persistence of the extinction function. The extinction function performs Bernoulli trials at occupied cells to determine whether they remain occupied into the next timestep
+#### Dispersal control layer
+They layer should also have values ranging between zero and one, and has two purposes. Firstly, it defines barriers for movement, with values equal to zero not able to be colonised. Secondly, they serve as a weighting for the number of colonisers that disperse from an occupied cell. Larger values resulting in greater numbers of colonisers.
+
+The survival and dispersal control layers are stored as two versions, an active and passive layer. The active layer is used in the colonisation and extinction functions, that are used to update the state layer. The passive layer is initially identical to the actvie layer but allows users to make temporary updates to the active layer (e.g. add in some stochastic noise, disturbances or species interactions), by allowing users to revert back to the original suitability layer at the end of an iteration.
+
+## Example
+In this example, I have created a single habitat suitability map with values between zero and one that will serve as BOTH the survival and colonisation control layers. This basically means that in our simulation, the environment affects survival and colonisation to similar degree. Specifiying two different
+
+It is also important that when loading the raster that we also use the getHeader() function to save the file header. This is important for exporting the virtual species distributions to file after running the simulations.
 
 The header for the file used here is 6 lines in length. This tells the getHeader() function how many lines to read and also how many lines to skip when reading the raster.
 
@@ -14,7 +25,7 @@ The header for the file used here is 6 lines in length. This tells the getHeader
 ```julia
 include("D:/git/SpatialVirtualSpecies/src/SpatialVirtualSpecies.jl")
 using .SpatialVirtualSpecies
-using DataFrames
+using DataFrames,DelimitedFiles
 using PyPlot
 
 header = SpatialVirtualSpecies.getHeader("D:/PHDExperimentOutputs/Transferability/landscapes/suitability/suitability789.asc",6)
@@ -33,7 +44,7 @@ colorbar()
 
 Now we have our habitat suitability layer, we also need to initialise a state layer. The state layer is separate 2D matrix that can be either a zero or a one. If the state of a cell is set to one, then it is occupied by the virtual species, if it is zero then it is unoccupied.
 
-In this example I have randomly set 1% of cells that have suitability values between 0.4-1.0 as occupied. 
+In this example I have randomly set 1% of cells that have suitability values between 0.4-1.0 as occupied.
 
 
 ```julia
@@ -47,42 +58,36 @@ imshow(pa,cmap="gray")
 
 
 
-
 ### Define simulation parameters
 
 Next we define a set of parameters for our simulation. To being with, we'll just use the simplest simulation and focus only on dispersal parameters. To do this, we define three parameters that control the mean number of dispersers from a cell, the probability that a cell will be selected for dispersal and the mean dispersal distance (measured in cells units).
 
-To control the behaviour of how cells are selected for colonisation, a position selector (POS) constructor is created. In this example we will use an exponential function but a linear function is available or you can create your own (See XXX). 
+To control the behaviour of how cells are selected for colonisation, a position selector (POS) constructor is created. In this example we will use an exponential function but a linear function is available or you can create your own (See XXX).
 
 
 ```julia
-# Create cartesian index 
 paIdx = CartesianIndices(suitability)
-# Define dispersal parameters
-num_dispersers = 1
-prob_dispersal = 0.2
-dispersal_dist = 3.0
 # Define POS parameter constructors
-pos_params = SpatialVirtualSpecies.ExponentialPosSelector(dispersal_dist)
+pos_params = SpatialVirtualSpecies.ExponentialPosSelector(3)
+# Define dispersal parameters
+cp = SpatialVirtualSpecies.ColoniseParameters(pos_params,0.2)
 #Create simulation constructor
-ca = SpatialVirtualSpecies.SpeciesCellularAutomataSuitabilityWeighted(pa,paIdx,suitability,suitability,pos_params,prob_dispersal,num_dispersers)
+ca = SpatialVirtualSpecies.SpeciesCellularAutomata(pa,paIdx,suitability,suitability)
+imshow(ca.pa)
 ```
 
 
+![png](img/readme/output_5_0.png)
 
-
-
-Both the habitat suitabilty and state layers can be accessed through the cellular automata object (ca)
 
 
 ```julia
-imshow(ca.suitabilityActive)
+imshow(ca.survivalControl_Initial)
 imshow(ca.pa,cmap="gray")
 ```
 
 
-![png](img/readme/output_7_0.png)
-
+![png](img/readme/output_6_0.png)
 
 
 
@@ -96,12 +101,11 @@ You can modify the order of these functions or define your own function that mod
 ```julia
 function simulate(ca,iterations)
     for i in 1:iterations
-        SpatialVirtualSpecies.colonise(ca)
+        SpatialVirtualSpecies.colonise(ca,cp)
         SpatialVirtualSpecies.extinction(ca)
     end
 end  
 ```
-
 
 
 
@@ -116,8 +120,7 @@ imshow(ca.pa,cmap="gray")
 ```
 
 
-![png](img/readme/output_11_0.png)
-
+![png](img/readme/output_10_0.png)
 
 
 

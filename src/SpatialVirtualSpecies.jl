@@ -7,55 +7,44 @@ using Random
 using StatsBase
 
 abstract type AbstractSpeciesCellularAutomata end
+abstract type AbstractColoniseParameters end
+abstract type AbstractNeighbourhoodParameters end
+
+
 abstract type AbstractScalingParameters end
 
-
 mutable struct SpeciesCellularAutomata <: AbstractSpeciesCellularAutomata
+    # State layer & control layer
     pa::Matrix{Float64}
     pa_cart_index::Matrix{CartesianIndex{2}}
-    suitabilityInitial::Matrix{Float64}
-    suitabilityActive::Matrix{Float64}
-    # Dispersal parameters
+    survivalControl_Passive::Matrix{Float64}
+    coloniseControl_Passive::Matrix{Float64}
+    survivalControl_Active::Matrix{Float64}
+    coloniseControl_Active::Matrix{Float64}
+    SpeciesCellularAutomata(pa,pa_cart_index,survivalControl_Passive,coloniseControl_Passive) = new(pa,pa_cart_index,survivalControl_Passive,coloniseControl_Passive,survivalControl_Passive,coloniseControl_Passive)
+end
+mutable struct ColoniseParameters <: AbstractColoniseParameters
     posSelector::AbstractPositionSelector
     dispersalProbability::Float64
 end
-
-mutable struct SpeciesCellularAutomataSuitabilityWeighted <: AbstractSpeciesCellularAutomata
-    pa::Matrix{Float64}
-    pa_cart_index::Matrix{CartesianIndex{2}}
-    suitabilityInitial::Matrix{Float64}
-    suitabilityActive::Matrix{Float64}
-    # Dispersal parameters
+mutable struct ColoniseWeightedParameters <: AbstractColoniseParameters
     posSelector::AbstractPositionSelector
     dispersalProbability::Float64
     meanNumberDispersers::Int64
 end
-
-mutable struct SpeciesCellularAutomataNeighbourhoodWeighted <: AbstractSpeciesCellularAutomata
-    pa::Matrix{Float64}
-    pa_cart_index::Matrix{CartesianIndex{2}}
-    suitabilityInitial::Matrix{Float64}
-    suitabilityActive::Matrix{Float64}
-    # Dispersal parameters
-    posSelector::AbstractPositionSelector
-    dispersalProbability::Float64
-    meanNumberDispersers::Int64
-    # Weight parameters
-    neighbourhoodParams::AbstractNeighbourhood
+mutable struct NeighbourhoodParameters <: AbstractNeighbourhoodParameters
+    neighbourhoodType::AbstractNeighbourhood
     neighbourSurvivalWeight::Float64
-    neighbourDispersalWeight::Float64
-    dispersalScaleParams::AbstractScalingParameters
+    neighbourColoniseWeight::Float64
+    coloniseScaleParams::AbstractScalingParameters
     survivalScaleParams::AbstractScalingParameters
-    ### TODO: Check neighbourhoodParams Radius = weightMatrix radius
     weightMatrix::Matrix{Float64}
 end
-
 mutable struct LogisticScalingParameters <: AbstractScalingParameters
     maxVal::Float64
     k::Float64
     LogisticScalingParameters(;maxVal=0.9,k=-10) = new(maxVal,k)
 end
-
 """
     scaleValue(params,suitVal,weightVal)
 
@@ -94,13 +83,13 @@ end
 Select a single cell to colonise
 
 """
-function colonise(ca::SpeciesCellularAutomata)
+function colonise(ca::SpeciesCellularAutomata,cp::ColoniseParameters)
     rng = MersenneTwister()
     shape = size(ca.pa)
-    dCells = selectProportion(ca.pa,ca.pa_cart_index,ca.dispersalProbability)
+    dCells = selectProportion(ca.pa,ca.pa_cart_index,cp.dispersalProbability)
     for i in dCells
-        newXY = selectColonisedCoordinate(ca.posSelector,i,rng)
-        if newXY[2]>=1 && newXY[2] <= shape[2] && newXY[1] >=1 && newXY[1]<=shape[1]
+        newXY = selectColonisedCoordinate(cp.posSelector,i,rng)
+        if coordInBoundaries(newXY,shape) && (ca.coloniseControl_Active[newXY[1],newXY[2]]>0)
             ca.pa[newXY[1],newXY[2]] = 1.0
         end
     end
@@ -115,18 +104,18 @@ has
 
 
 """
-function colonise(ca::SpeciesCellularAutomataSuitabilityWeighted)
+function colonise(ca::SpeciesCellularAutomata,cp::ColoniseWeightedParameters)
     rng = MersenneTwister()
     shape = size(ca.pa)
-    dCells = selectProportion(ca.pa,ca.pa_cart_index,ca.dispersalProbability)
+    dCells = selectProportion(ca.pa,ca.pa_cart_index,cp.dispersalProbability)
     for i in dCells
         # Determine maximum number of dispersers scaled by suitabiility
-        meanNumDispersers = ca.meanNumberDispersers*ca.suitabilityActive[i]
+        meanNumDispersers = cp.meanNumberDispersers*ca.coloniseControl_Active[i]
         if meanNumDispersers > 0.0
             numberDispersers = rand(rng,Poisson(meanNumDispersers))
             for j in 1:numberDispersers
-                newXY = selectColonisedCoordinate(ca.posSelector,i,rng)
-                if newXY[2]>=1 && newXY[2] <= shape[2] && newXY[1] >=1 && newXY[1]<=shape[1]
+                newXY = selectColonisedCoordinate(cp.posSelector,i,rng)
+                if coordInBoundaries(newXY,shape) && ca.coloniseControl_Active[newXY[1],newXY[2]]>0
                     ca.pa[newXY[1],newXY[2]] = 1.0
                 end
             end
@@ -149,51 +138,41 @@ Note: As this is neighbour weighted, the order of cells are randomised to preven
       neighbourhood weights. This would effectively make the neighbourhood effects
       synchronus (i.e. all processes happen at the same time, instantly).
 """
-function colonise(ca::SpeciesCellularAutomataNeighbourhoodWeighted)
+function colonise(ca::SpeciesCellularAutomata,cp::ColoniseWeightedParameters,np::NeighbourhoodParameters)
     rng = MersenneTwister()
-    shp = size(ca.pa)
+    shape = size(ca.pa)
     # Select cells to be sources for colonisation
-    dCells = selectProportion(ca.pa,ca.pa_cart_index,ca.dispersalProbability)
+    dCells = selectProportion(ca.pa,ca.pa_cart_index,cp.dispersalProbability)
     # Random shuffle to avoid grid index bias due to order of applying this function
     idxShuffle = sample(collect(1:1:length(dCells)),length(dCells),replace=false)
     for i in idxShuffle
         cellIndex = dCells[i]
         # Get the occurrences in the neighbourhood
-        paNeighbourhood = getNeighbourhood(ca.neighbourhoodParams,ca.pa,cellIndex,shp)
+        paNeighbourhood = getNeighbourhood(np.neighbourhoodType,ca.pa,cellIndex,shape)
         # Get the suitabilty neighbourhood weighted by the weight matrix
-        suitNeighbourhood = getWeightedNeighbourhood(ca.neighbourhoodParams,ca.suitabilityActive,ca.weightMatrix,cellIndex,shp)
+        suitNeighbourhood = getWeightedNeighbourhood(np.neighbourhoodType,ca.coloniseControl_Active,np.weightMatrix,cellIndex,shape)
         # Calculate the neighbourhood weight
         neighbourWeight = neighbourHoodWeight(paNeighbourhood,suitNeighbourhood)
-        dispWeight = neighbourWeight * ca.neighbourDispersalWeight
+        colWeight = neighbourWeight * np.neighbourColoniseWeight
         # Determine maximum number of dispersers scaled by suitabiility
-        dispersalMultiplier = scaleValue(ca.dispersalScaleParams,ca.suitabilityActive[cellIndex],dispWeight)
+        coloniseMultiplier = scaleValue(np.coloniseScaleParams,ca.coloniseControl_Active[cellIndex],colWeight)
         #dispersalMultiplier = 1/(1+MathConstants.e^(-10*(ca.suitabilityActive[cellIndex]-(1-dispWeight))))
-        meanNumDispersers = (1 + (ca.suitabilityActive[cellIndex]*dispersalMultiplier))*ca.meanNumberDispersers
+        meanNumDispersers = (1 + (ca.coloniseControl_Active[cellIndex]*coloniseMultiplier))*cp.meanNumberDispersers
         numberDispersers = rand(rng,Poisson(meanNumDispersers))
         for j in 1:numberDispersers
-            newXY = selectColonisedCoordinate(ca.posSelector,cellIndex,rng)
-            if newXY[2]>=1 && newXY[2] <= shp[2] && newXY[1] >=1 && newXY[1]<=shp[1]
+            newXY = selectColonisedCoordinate(cp.posSelector,cellIndex,rng)
+            if coordInBoundaries(newXY,shape) && ca.coloniseControl_Active[newXY[1],newXY[2]]>0
                 ca.pa[newXY[1],newXY[2]] = 1.0
             end
         end
     end
 end
+
 function extinction(ca::SpeciesCellularAutomata)
     rng = MersenneTwister()
     for idx in ca.pa_cart_index
         if ca.pa[idx] === 1.0
-            survived = rand(rng,Bernoulli(ca.suitabilityActive[idx]),1)
-            if survived[1] == false
-                ca.pa[idx] = 0
-            end
-        end
-    end
-end
-function extinction(ca::SpeciesCellularAutomataSuitabilityWeighted)
-    rng = MersenneTwister()
-    for idx in ca.pa_cart_index
-        if ca.pa[idx] === 1.0
-            survived = rand(rng,Bernoulli(ca.suitabilityActive[idx]),1)
+            survived = rand(rng,Bernoulli(ca.survivalControl_Active[idx]),1)
             if survived[1] == false
                 ca.pa[idx] = 0
             end
@@ -213,25 +192,25 @@ Note: As this is neighbour weighted, the order of cells are randomised to preven
       neighbourhood weights. This would effectively make the neighbourhood effects
       synchronus (i.e. all processes happen at the same time, instantly).
 """
-function extinction(ca::SpeciesCellularAutomataNeighbourhoodWeighted)
+function extinction(ca::SpeciesCellularAutomata,np::NeighbourhoodParameters)
     rng = MersenneTwister()
     # Randomise cell index to prevent bias from the neighbourhood weighting
     # Alternative could be to copy the the pa array.
-    shp = size(ca.pa)
-    nCells = shp[1]*shp[2]
+    shape = size(ca.pa)
+    nCells = shape[1]*shape[2]
     idxShuffle = sample(collect(1:1:nCells),nCells,replace=false)
     for i in idxShuffle
         cellIndex = ca.pa_cart_index[i]
         if ca.pa[i] === 1.0
             # Determine the neighbourhood weighted survival probability
-            paNeighbourhood = getNeighbourhood(ca.neighbourhoodParams,ca.pa,cellIndex,shp)
-            suitNeighbourhood = getWeightedNeighbourhood(ca.neighbourhoodParams,ca.suitabilityActive,ca.weightMatrix,cellIndex,shp)
+            paNeighbourhood = getNeighbourhood(np.neighbourhoodType,ca.pa,cellIndex,shape)
+            suitNeighbourhood = getWeightedNeighbourhood(np.neighbourhoodType,ca.survivalControl_Active,np.weightMatrix,cellIndex,shape)
             neighbourWeight = neighbourHoodWeight(paNeighbourhood,suitNeighbourhood)
-            survWeight = neighbourWeight * ca.neighbourSurvivalWeight
+            survWeight = neighbourWeight * np.neighbourSurvivalWeight
             # Scale survival probability
-            sf = scaleValue(ca.survivalScaleParams,ca.suitabilityActive[cellIndex],survWeight)
+            sf = scaleValue(np.survivalScaleParams,ca.survivalControl_Active[cellIndex],survWeight)
             #sf = 0.9/(1+MathConstants.e^(-10*(ca.suitabilityActive[cellIndex]-(1-survWeight))))
-            survivalProbability = ca.suitabilityActive[cellIndex] + (1-ca.suitabilityActive[cellIndex])*sf
+            survivalProbability = ca.survivalControl_Active[cellIndex] + (1-ca.survivalControl_Active[cellIndex])*sf
             # Determine survival
             survived = sample(rng,[0,1],ProbabilityWeights([1.0-survivalProbability,survivalProbability]))
             if survived === 0
@@ -244,13 +223,15 @@ end
 struct Interaction
     strength::Float64
     competetiveEdge::Float64
+    useActive::Bool
     effectSpeciesAonB::Float64
     effectSpeciesBonA::Float64
 
-    function Interaction(strength,competetiveEdge)
+
+    function Interaction(strength,competetiveEdge,useActive)
         effectSpeciesAonB = strength*competetiveEdge
         effectSpeciesBonA = strength*(1-competetiveEdge)
-        return(new(strength,competetiveEdge,effectSpeciesAonB,effectSpeciesBonA))
+        return(new(strength,competetiveEdge,useActive,effectSpeciesAonB,effectSpeciesBonA))
     end
 end
 """
@@ -263,7 +244,15 @@ interacting species no long occupies the cell in subsequent iterations.
 
 """
 function interact(interaction::Interaction,speciesA::AbstractSpeciesCellularAutomata,speciesB::AbstractSpeciesCellularAutomata)
-    speciesA.suitabilityActive = speciesA.suitabilityInitial .- ( speciesA.suitabilityInitial.* (interaction.effectSpeciesBonA .* speciesB.pa))
-    speciesB.suitabilityActive = speciesB.suitabilityInitial .- (speciesB.suitabilityInitial .* (interaction.effectSpeciesAonB .* speciesA.pa))
+    if interaction.useActive == false
+        speciesA.survivalControl_Active = speciesA.survivalControl_Passive .- (speciesA.survivalControl_Passive.* (interaction.effectSpeciesBonA .* speciesB.pa))
+        speciesB.survivalControl_Active = speciesB.survivalControl_Passive .- (speciesB.survivalControl_Passive .* (interaction.effectSpeciesAonB .* speciesA.pa))
+    else
+        speciesA.survivalControl_Active = speciesA.survivalControl_Active .- (speciesA.survivalControl_Active .* (interaction.effectSpeciesBonA .* speciesB.pa))
+        speciesB.survivalControl_Active = speciesB.survivalControl_Active .- (speciesB.survivalControl_Active .* (interaction.effectSpeciesAonB .* speciesA.pa))
+    end
+end
+function reset_active_layer(species::AbstractSpeciesCellularAutomata)
+    species.survivalControl_Active = species.survivalControl_Passive
 end
 end # module

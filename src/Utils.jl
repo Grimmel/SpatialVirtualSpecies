@@ -21,7 +21,13 @@ function generateStateLayer(suitability::Matrix{Float64},proportion::Float64,sui
     end
     return state
 end
-
+function coordInBoundaries(coord::Tuple{Int64,Int64},shape::Tuple{Int64,Int64})
+    if coord[2]>=1 && coord[2] <= shape[2] && coord[1] >=1 && coord[1]<=shape[1]
+        return(true)
+    else
+        return(false)
+    end
+end
 function getHeader(file,lines)
     s = ""
     open(file) do fobj
