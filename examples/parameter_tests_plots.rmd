@@ -1,0 +1,496 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+
+```{r}
+options(warn=-1)
+library(ggplot2)
+library(raster)
+library(landscapemetrics)
+library(dplyr)
+library(dismo)
+fol <- "F:/PhD/ca_tests"
+
+dispersalTime <- read.csv(paste(fol,"/dispersal_ls789df.csv",sep=""))
+neighbourhoodTime <- read.csv(paste(fol,"/neighbourhood_ls789df.csv",sep=""))
+interactionTime <- read.csv(paste(fol,"/interaction_df.csv",sep=""))
+
+# Load suitability raster
+suit_ls1 <- raster("D:/PHDExperimentOutputs/Transferability/landscapes/suitability/suitability_789.asc")
+hab_ls1 <- raster("D:/PHDExperimentOutputs/Transferability/landscapes/env/hab_ls789.asc")
+temp_ls1 <- raster("D:/PHDExperimentOutputs/Transferability/landscapes/env/temp_ls789.asc")
+
+suit_ls2 <- raster("D:/PHDExperimentOutputs/Transferability/landscapes/suitability/suitability_223.asc")
+hab_ls2 <- raster("D:/PHDExperimentOutputs/Transferability/landscapes/env/habitat_ls223.asc")
+temp_ls2 <- raster("D:/PHDExperimentOutputs/Transferability/landscapes/env/temp_ls223.asc")
+```
+```{r}
+scaleRange <- function(dat,newMin,newMax){
+  minDat <- min(values(dat))
+  maxDat <- max(values(dat))
+  return((newMax-newMin)*((dat-minDat)/(maxDat-minDat)))
+}
+scaledls <- (scaleRange(suit_ls2,0,0.8))
+writeRaster(scaledls,"D:/PHDExperimentOutputs/Transferability/landscapes/suitability/suitability_223scaled.asc",overwrite=TRUE)
+```
+```{r}
+writeRaster(hab_ls2,"D:/PHDExperimentOutputs/Transferability/landscapes/env/habitat_ls223scaled.asc")
+writeRaster(temp_ls2,"D:/PHDExperimentOutputs/Transferability/landscapes/env/temp_ls223scaled.asc")
+
+```
+
+
+
+
+
+
+```{r}
+analyse <- function(occ,suitBreaks,freqSuit,tempBreaks,freqTemp,habBreaks,freqHab){
+  paCount <- zonal(occ,suitBreaks,fun='sum')        ## Number of cells occupied within each suitability class
+  paCountPU <- paCount[,2]/freqSuit[,2]   ## Proportion of cells occupied for each suitability class
+  paCountTemp<- zonal(occ,tempBreaks,fun='sum')        ## Number of cells occupied within each suitability class
+  paCountPUTemp <- paCountTemp[,2]/freqTemp[,2]   ## Proportion of cells occupied for each suitability class
+  paCountHab<- zonal(occ,habBreaks,fun='sum')        ## Number of cells occupied within each suitability class
+  paCountPUHab <- paCountHab[,2]/freqHab[,2]   ## Proportion of cells occupied for each suitability class
+  clump <- lsm_c_clumpy(occ)
+  pts <- rasterToPoints(occ,spatial=TRUE)
+  names(pts)<- c('val')
+  cv <- convHull(pts[pts$val==1,])
+  cv <- predict(cv,occ)
+  hullArea <- (sum(as.data.frame(cv)))
+  # Process outputs
+  out <- as.data.frame(cbind(freqSuit,paCount[,2],paCountPU,paCountPUTemp,paCountPUHab,clump[clump$class==1,]$value,hullArea))
+  names(out) <- c('break_pt','suit_freq','pa_count','pa_prop','pa_prop_temp','pa_prop_hab','clump','hullArea')
+  return(out)
+  
+}
+```
+
+
+
+```{r warning=FALSE, message=FALSE}
+dispersalResults <- function(suit,temp,hab,ls){
+  suitBreaks <- cut(suit,breaks=c(0.0,0.05,0.10,0.15,0.20,0.25,0.30,0.35,0.40,0.45,0.50,0.55,0.60,0.65,0.70,0.75,0.80,0.85,0.90,0.95,1.0))
+  # Calculate the number of cells within each suitability class
+  freqSuit <- freq(suitBreaks,useNA="no")
+  tempBreaks <- cut(temp,breaks=c(0.0,0.05,0.10,0.15,0.20,0.25,0.30,0.35,0.40,0.45,0.50,0.55,0.60,0.65,0.70,0.75,0.80,0.85,0.90,0.95,1.0))
+  # Calculate the number of cells within each suitability class
+  freqTemp <- freq(tempBreaks,useNA="no")
+  habBreaks <- cut(hab,breaks=c(0.0,0.05,0.10,0.15,0.20,0.25,0.30,0.35,0.40,0.45,0.50,0.55,0.60,0.65,0.70,0.75,0.80,0.85,0.90,0.95,1.0))
+  # Calculate the number of cells within each suitability class
+  freqHab <- freq(habBreaks,useNA="no")
+  
+  results <- 0
+  for(disp_mean in c('1.0','3.0','5.0')){
+    for(num_disp in c(1,3,5)){
+      for(prob_disp in c('0.1','0.2','0.4')){
+        for(i in 1:10){
+          r <- raster(paste("F:/PhD/ca_tests/",ls,"/dispersal/sim_expo_mean",disp_mean, "_prob",prob_disp,"_disp",num_disp, "_rep",i,".asc",sep=""))
+          if (sum(as.data.frame(r))>2){
+            out <- analyse(r,suitBreaks,freqSuit,tempBreaks,freqTemp,habBreaks,freqHab)
+            out$disp_mean <- disp_mean
+            out$num_disp <- num_disp
+            out$prob_disp <- prob_disp
+            out$rep <- i
+            if(results==0){
+              results = out
+            }else{
+              results <- rbind(results,out)
+           }
+          }else{
+            print(paste(disp_mean,num_disp,prob_disp))
+          }
+          
+
+        }
+      }
+    }
+  }
+  write.csv(results,paste("F:/PhD/ca_tests/dispersal_results",ls,"_.csv",sep=""))
+}
+
+```
+```{r warning=FALSE, message=FALSE}
+neighbourhoodResults <- function(suit,temp,hab,ls){
+  suitBreaks <- cut(suit,breaks=c(0.0,0.05,0.10,0.15,0.20,0.25,0.30,0.35,0.40,0.45,0.50,0.55,0.60,0.65,0.70,0.75,0.80,0.85,0.90,0.95,1.0))
+  # Calculate the number of cells within each suitability class
+  freqSuit <- freq(suitBreaks,useNA="no")
+  tempBreaks <- cut(temp,breaks=c(0.0,0.05,0.10,0.15,0.20,0.25,0.30,0.35,0.40,0.45,0.50,0.55,0.60,0.65,0.70,0.75,0.80,0.85,0.90,0.95,1.0))
+  # Calculate the number of cells within each suitability class
+  freqTemp <- freq(tempBreaks,useNA="no")
+  habBreaks <- cut(hab,breaks=c(0.0,0.05,0.10,0.15,0.20,0.25,0.30,0.35,0.40,0.45,0.50,0.55,0.60,0.65,0.70,0.75,0.80,0.85,0.90,0.95,1.0))
+  # Calculate the number of cells within each suitability class
+  freqHab <- freq(habBreaks,useNA="no")
+  
+  results <- 0
+  
+  for(nb_size in c(1,2,3)){
+    for(surv_weight in c('0.05','0.1','0.3')){
+      for(col_weight in c('0.05','0.1','0.3')){
+        for(i in 1:10){
+          r <- raster(paste("F:/PhD/ca_tests/",ls,"/neighbour/sim_",nb_size,"_sweight",surv_weight,"cweight",col_weight,"_rep",i,".asc",sep=""))
+          if (sum(as.data.frame(r))>2){
+            out <- analyse(r,suitBreaks,freqSuit,tempBreaks,freqTemp,habBreaks,freqHab)
+            out$nb_size <- nb_size
+            out$sweight <- surv_weight
+            out$cweight <- col_weight
+            out$rep <- i
+            if(results==0){
+              results = out
+            }else{
+              results <- rbind(results,out)
+            }
+          }else{
+            print(paste(nb_size,surv_weight,col_weight))
+
+          }
+        }
+      }
+    }
+  }
+  write.csv(results,paste("F:/PhD/ca_tests/neighbour_results",ls,"_.csv",sep=""))
+}
+```
+```{r warning=FALSE, message=FALSE}
+interactionResults <- function(suit,temp,hab,species){
+  suitBreaks <- cut(suit,breaks=c(0.0,0.05,0.10,0.15,0.20,0.25,0.30,0.35,0.40,0.45,0.50,0.55,0.60,0.65,0.70,0.75,0.80,0.85,0.90,0.95,1.0))
+  # Calculate the number of cells within each suitability class
+  freqSuit <- freq(suitBreaks,useNA="no")
+  tempBreaks <- cut(temp,breaks=c(0.0,0.05,0.10,0.15,0.20,0.25,0.30,0.35,0.40,0.45,0.50,0.55,0.60,0.65,0.70,0.75,0.80,0.85,0.90,0.95,1.0))
+  # Calculate the number of cells within each suitability class
+  freqTemp <- freq(tempBreaks,useNA="no")
+  habBreaks <- cut(hab,breaks=c(0.0,0.05,0.10,0.15,0.20,0.25,0.30,0.35,0.40,0.45,0.50,0.55,0.60,0.65,0.70,0.75,0.80,0.85,0.90,0.95,1.0))
+  # Calculate the number of cells within each suitability class
+  freqHab <- freq(habBreaks,useNA="no")
+  
+  results <- 0
+  
+  
+  for(strength in c('0.2','0.5','1.0')){
+    for(edge in c('0.0','0.3','0.6','1.0')){
+      for(dprob in c('0.1','0.2','0.4')){
+      for(i in 1:10){
+          r <- raster(paste("F:/PhD/ca_tests/interaction/sim3_",strength,"_edge",edge,"_disp",dprob,"_",species,"_",i,".asc",sep=""))
+          if (sum(as.data.frame(r))>2){
+            out <- analyse(r,suitBreaks,freqSuit,tempBreaks,freqTemp,habBreaks,freqHab)
+            out$strength <- strength
+            out$edge <- edge
+            out$dprob <- dprob
+            out$rep <- i
+            if(results==0){
+              results = out
+            }else{
+              results <- rbind(results,out)
+            }
+          }else{
+            print(paste(strength,edge,dprob))
+
+          }
+        }
+      }
+    }
+  }
+  write.csv(results,paste("F:/PhD/ca_tests/interaction_results_",species,"_.csv",sep=""))
+}
+```
+```{r warning=FALSE, message=FALSE}
+dispersalResults(suit_ls1,temp_ls1,hab_ls1,'ls789')
+dispersalResults(suit_ls2,temp_ls2,hab_ls2,'ls223')
+neighbourhoodResults(suit_ls1,temp_ls1,hab_ls1,'ls789')
+neighbourhoodResults(suit_ls2,temp_ls2,hab_ls2,'ls223')
+interactionResults(suit_ls1,temp_ls1,hab_ls1,'species2')
+interactionResults(suit_ls2,temp_ls2,hab_ls2,'species1')
+```
+
+
+
+
+```{r}
+in_res <- read.csv("F:/PhD/ca_tests/interaction_results_species2_.csv")
+in_res2 <- read.csv("F:/PhD/ca_tests/interaction_results_species1_.csv")
+
+nb_res <- read.csv("F:/PhD/ca_tests/neighbour_resultsls789_.csv")
+disp_res <- read.csv("F:/PhD/ca_tests/dispersal_resultsls789_.csv")
+
+nb_res_ls2 <- read.csv("F:/PhD/ca_tests/neighbour_resultsls223_.csv")
+disp_resls2 <- read.csv("F:/PhD/ca_tests/dispersal_resultsls223_.csv")
+
+nb_res_ls3 <- read.csv("F:/PhD/ca_tests/neighbour_resultsls223scaled_.csv")
+disp_resls3 <- read.csv("F:/PhD/ca_tests/dispersal_resultsls223scaled_.csv")
+```
+
+```{r fig.height = 7,fig.width=10}
+library(ggpubr)
+m_disp <- disp_res%>% 
+  group_by(break_pt,disp_mean,num_disp,prob_disp) %>%
+  summarise_at(vars(pa_prop,pa_prop_temp,pa_prop_hab), funs(mean(., na.rm=TRUE)))
+maxm_disp <- m_disp %>%group_by(disp_mean,num_disp,prob_disp) %>%
+  summarise_at(vars(pa_prop,pa_prop_temp,pa_prop_hab), funs(max(., na.rm=TRUE)))%>%       
+  ungroup() %>%
+  rename_at(c('pa_prop','pa_prop_temp','pa_prop_hab'), funs(paste0('max_', .)))
+
+m_disp <- m_disp %>% left_join(maxm_disp,by=c('disp_mean'='disp_mean','num_disp'='num_disp','prob_disp'='prob_disp'))
+m_disp$num_disp <- paste("Mean dispersers =",m_disp$num_disp)
+
+m_disp2 <- disp_resls2%>% 
+  group_by(break_pt,disp_mean,num_disp,prob_disp) %>%
+  summarise_at(vars(pa_prop,pa_prop_temp,pa_prop_hab), funs(mean(., na.rm=TRUE)))
+maxm_disp2 <- m_disp2 %>%group_by(disp_mean,num_disp,prob_disp) %>%
+  summarise_at(vars(pa_prop,pa_prop_temp,pa_prop_hab), funs(max(., na.rm=TRUE)))%>%       
+  ungroup() %>%
+  rename_at(c('pa_prop','pa_prop_temp','pa_prop_hab'), funs(paste0('max_', .)))
+
+m_disp2 <- m_disp2 %>% left_join(maxm_disp2,by=c('disp_mean'='disp_mean','num_disp'='num_disp','prob_disp'='prob_disp'))
+m_disp2$num_disp <- paste("Mean dispersers =",m_disp2$num_disp)
+
+
+# Suitability occurrence rate
+p1_ls1 <- ggplot(data=m_disp, aes(x=break_pt/20, y=pa_prop/max_pa_prop,linetype=as.factor(disp_mean),color=as.factor(prob_disp))) +
+  geom_line(size=1)+theme_bw()+facet_wrap(~num_disp)+ylab("Relative occurrence rate")+xlab(element_blank())+
+  labs(linetype="Mean dispersal",color="Probabilty of\ndispersal")
+p1_ls2 <- ggplot(data=m_disp2, aes(x=break_pt/20, y=pa_prop/max_pa_prop,linetype=as.factor(disp_mean),color=as.factor(prob_disp))) +
+  geom_line(size=1)+theme_bw()+facet_wrap(~num_disp)+ylab("Relative occurrence rate")+xlab("Suitability gradient")+
+  labs(linetype="Mean dispersal",color="Probabilty of\ndispersal")
+
+disp_fig_1 <- ggarrange(p1_ls1,p1_ls2,nrow=2,common.legend = TRUE, legend="bottom")
+disp_fig_1
+
+# Temperature occurrence rate
+p2_ls1 <- ggplot(data=m_disp, aes(x=break_pt/20, y=pa_prop_temp/max_pa_prop_temp,linetype=as.factor(disp_mean),color=as.factor(prob_disp))) +
+  geom_line(size=1)+theme_bw()+facet_wrap(~num_disp)+ylab("Relative occurrence rate")+xlab(element_blank())+
+  labs(linetype="Mean dispersal",color="Probabilty of\ndispersal")
+p2_ls2 <- ggplot(data=m_disp2, aes(x=break_pt/20, y=pa_prop_temp/max_pa_prop_temp,linetype=as.factor(disp_mean),color=as.factor(prob_disp))) +
+  geom_line(size=1)+theme_bw()+facet_wrap(~num_disp)+ylab("Relative occurrence rate")+xlab("Temperature gradient")+
+  labs(linetype="Mean dispersal",color="Probabilty of\ndispersal")
+
+disp_fig_2 <- ggarrange(p2_ls1,p2_ls2,nrow=2,common.legend = TRUE, legend="bottom")
+disp_fig_2
+
+#Habitat occurrence rate
+p3_ls1 <- ggplot(data=m_disp, aes(x=break_pt/20, y=pa_prop_hab/max_pa_prop_hab,linetype=as.factor(disp_mean),color=as.factor(prob_disp))) +
+  geom_line(size=1)+theme_bw()+facet_wrap(~num_disp)+ylab("Relative occurrence rate")+xlab(element_blank())+
+  labs(linetype="Mean dispersal",color="Probabilty of\ndispersal")
+p3_ls2 <- ggplot(data=m_disp2, aes(x=break_pt/20, y=pa_prop_hab/max_pa_prop_hab,linetype=as.factor(disp_mean),color=as.factor(prob_disp))) +
+  geom_line(size=1)+theme_bw()+facet_wrap(~num_disp)+ylab("Relative occurrence rate")+xlab("Habitat gradient")+
+  labs(linetype="Mean dispersal",color="Probabilty of\ndispersal")
+
+disp_fig_3 <- ggarrange(p3_ls1,p3_ls2,nrow=2,common.legend = TRUE, legend="bottom")
+disp_fig_3
+
+m2_disp <- disp_res %>%
+  group_by(num_disp,disp_mean,prob_disp) %>%
+  summarise_at(vars(clump,hullArea), funs(mean(., na.rm=TRUE)))
+m2_disp$num_disp <- paste("Mean dispersers =",m2_disp$num_disp)
+
+m2_disp2 <- disp_resls2 %>%
+  group_by(num_disp,disp_mean,prob_disp) %>%
+  summarise_at(vars(clump,hullArea), funs(mean(., na.rm=TRUE)))
+m2_disp2$num_disp <- paste("Mean dispersers =",m2_disp2$num_disp)
+
+# Spatial aggregation
+p4_ls1 <- ggplot(data=m2_disp, aes(x=prob_disp, y=clump,group=as.factor(disp_mean),color=as.factor(disp_mean)))+
+  geom_line(size=1)+theme_bw()+facet_wrap(~num_disp)+labs(color="Dispersal mean",x=element_blank(),y="Clumpiness index")
+p4_ls2 <- ggplot(data=m2_disp2, aes(x=prob_disp, y=clump,group=as.factor(disp_mean),color=as.factor(disp_mean)))+
+  geom_line(size=1)+theme_bw()+facet_wrap(~num_disp)+labs(color="Dispersal mean",x="Probability of dispersal",y="Clumpiness index")
+
+disp_fig_4 <- ggarrange(p4_ls1,p4_ls2,nrow=2,common.legend = TRUE, legend="bottom")
+disp_fig_4
+
+# Geographic extent
+p5_ls1 <- ggplot(data=m2_disp, aes(x=prob_disp, y=hullArea/160000,group=as.factor(disp_mean),color=as.factor(disp_mean)))+
+   geom_line(size=1)+theme_bw()+facet_wrap(~num_disp)+labs(color="Dispersal mean",x=element_blank(),y="Geographic extent prevalence")
+p5_ls2 <- ggplot(data=m2_disp2, aes(x=prob_disp, y=hullArea/160000,group=as.factor(disp_mean),color=as.factor(disp_mean)))+
+   geom_line(size=1)+theme_bw()+facet_wrap(~num_disp)+labs(color="Dispersal mean",x="Probability of dispersal",y="Geographic extent prevalence")
+
+disp_fig_5 <- ggarrange(p5_ls1,p5_ls2,nrow=2,common.legend = TRUE, legend="bottom")
+disp_fig_5
+
+m3_disp <- disp_res%>%
+  group_by(num_disp,disp_mean,prob_disp) %>%
+  summarise_at(vars(pa_count,suit_freq), funs(sum(., na.rm=TRUE)))
+m3_disp$num_disp <- paste("Mean dispersers =",m3_disp$num_disp)
+m3_disp2 <- disp_resls2%>%
+  group_by(num_disp,disp_mean,prob_disp) %>%
+  summarise_at(vars(pa_count,suit_freq), funs(sum(., na.rm=TRUE)))
+m3_disp2$num_disp <- paste("Mean dispersers =",m3_disp2$num_disp)
+
+# Prevalence
+p6_ls1 <- ggplot(data=m3_disp, aes(x=prob_disp, y=pa_count/suit_freq,group=as.factor(disp_mean),color=as.factor(disp_mean)))+
+  geom_line(size=1)+theme_bw()+facet_wrap(~num_disp)+labs(color="Dispersal mean",x=element_blank(),y="Occurrence prevalence")
+p6_ls2 <- ggplot(data=m3_disp2, aes(x=prob_disp, y=pa_count/suit_freq,group=as.factor(disp_mean),color=as.factor(disp_mean)))+
+  geom_line(size=1)+theme_bw()+facet_wrap(~num_disp)+labs(color="Dispersal mean",x="Probability of dispersal",y="Occurrence prevalence")
+
+disp_fig_6 <- ggarrange(p6_ls1,p6_ls2,nrow=2,common.legend = TRUE, legend="bottom")
+disp_fig_6
+
+```
+```{r fig.height = 7,fig.width=10}
+m_nb <- nb_res%>% 
+  group_by(break_pt,nb_size,sweight,cweight) %>%
+  summarise_at(vars(pa_prop,pa_prop_temp,pa_prop_hab), funs(mean(., na.rm=TRUE)))
+maxm_nb <- m_nb %>%group_by(nb_size,sweight,cweight) %>%
+  summarise_at(vars(pa_prop,pa_prop_temp,pa_prop_hab), funs(max(., na.rm=TRUE)))%>%       
+  ungroup() %>%
+  rename_at(c('pa_prop','pa_prop_temp','pa_prop_hab'), funs(paste0('max_', .)))
+m_nb <- m_nb %>% left_join(maxm_nb,by=c('nb_size'='nb_size','sweight'='sweight','cweight'='cweight'))
+m_nb$cweight <- paste("Colonise weight =",m_nb$cweight)
+
+m_nb2 <- nb_res_ls2%>% 
+  group_by(break_pt,nb_size,sweight,cweight) %>%
+  summarise_at(vars(pa_prop,pa_prop_temp,pa_prop_hab), funs(mean(., na.rm=TRUE)))
+maxm_nb2 <- m_nb2 %>%group_by(nb_size,sweight,cweight) %>%
+  summarise_at(vars(pa_prop,pa_prop_temp,pa_prop_hab), funs(max(., na.rm=TRUE)))%>%       
+  ungroup() %>%
+  rename_at(c('pa_prop','pa_prop_temp','pa_prop_hab'), funs(paste0('max_', .)))
+m_nb2 <- m_nb2 %>% left_join(maxm_nb2,by=c('nb_size'='nb_size','sweight'='sweight','cweight'='cweight'))
+m_nb2$cweight <- paste("Colonise weight =",m_nb2$cweight)
+
+# Occurrence rate suitbaility
+p1_ls1 <- ggplot(data=m_nb, aes(x=break_pt/20, y=pa_prop/max_pa_prop,linetype=as.factor(nb_size),color=as.factor(sweight))) +
+  geom_line(size=1)+theme_bw()+facet_wrap(~cweight)+ylab("Relative occurrence rate")+xlab(element_blank())+
+  labs(linetype="Neighbourhood size",color="Survival weight")
+p1_ls2 <- ggplot(data=m_nb2, aes(x=break_pt/20, y=pa_prop/max_pa_prop,linetype=as.factor(nb_size),color=as.factor(sweight))) +
+  geom_line(size=1)+theme_bw()+facet_wrap(~cweight)+ylab("Relative occurrence rate")+xlab("Suitability gradient")+
+  labs(linetype="Neighbourhood size",color="Survival weight")
+nb_fig_1 <- ggarrange(p1_ls1,p1_ls2,nrow=2,common.legend = TRUE, legend="bottom")
+nb_fig_1
+
+# Temperature occurrence rate
+p2_ls1 <- ggplot(data=m_nb, aes(x=break_pt/20, y=pa_prop_temp/max_pa_prop_temp,linetype=as.factor(nb_size),color=as.factor(sweight))) +
+  geom_line(size=1)+theme_bw()+facet_wrap(~cweight)+ylab("Relative occurrence rate")+xlab(element_blank())+
+  labs(linetype="Neighbourhood size",color="Survival weight")
+p2_ls2 <- ggplot(data=m_nb2, aes(x=break_pt/20, y=pa_prop_temp/max_pa_prop_temp,linetype=as.factor(nb_size),color=as.factor(sweight))) +
+  geom_line(size=1)+theme_bw()+facet_wrap(~cweight)+ylab("Relative occurrence rate")+xlab("Temperature gradient")+
+  labs(linetype="Neighbourhood size",color="Survival weight")
+nb_fig_2 <- ggarrange(p2_ls1,p2_ls2,nrow=2,common.legend = TRUE, legend="bottom")
+nb_fig_2
+
+# Habitat occurrence rate
+p3_ls1 <- ggplot(data=m_nb, aes(x=break_pt/20, y=pa_prop_hab/max_pa_prop_hab,linetype=as.factor(nb_size),color=as.factor(sweight))) +
+  geom_line(size=1)+theme_bw()+facet_wrap(~cweight)+ylab("Relative occurrence rate")+xlab(element_blank())+
+  labs(linetype="Neighbourhood size",color="Survival weight")
+p3_ls2 <- ggplot(data=m_nb2, aes(x=break_pt/20, y=pa_prop_hab/max_pa_prop_hab,linetype=as.factor(nb_size),color=as.factor(sweight))) +
+  geom_line(size=1)+theme_bw()+facet_wrap(~cweight)+ylab("Relative occurrence rate")+xlab("Habitat gradient")+
+  labs(linetype="Neighbourhood size",color="Survival weight")
+nb_fig_3 <- ggarrange(p3_ls1,p3_ls2,nrow=2,common.legend = TRUE, legend="bottom")
+nb_fig_3
+
+m2_nb <- nb_res %>%
+  group_by(nb_size,sweight,cweight) %>%
+  summarise_at(vars(clump,hullArea), funs(mean(., na.rm=TRUE)))
+m2_nb$cweight <- paste("Colonise weight =",m2_nb$cweight)
+
+m2_nb_2 <- nb_res_ls2 %>%
+  group_by(nb_size,sweight,cweight) %>%
+  summarise_at(vars(clump,hullArea), funs(mean(., na.rm=TRUE)))
+m2_nb_2$cweight <- paste("Colonise weight =",m2_nb_2$cweight)
+
+p4_ls1 <- ggplot(data=m2_nb, aes(x=sweight, y=clump,group=as.factor(nb_size),color=as.factor(nb_size)))+
+  geom_line(size=1)+theme_bw()+facet_wrap(~cweight)+labs(color="Neighbourhood size",x=element_blank(),y="Clumpiness index")
+p4_ls2 <- ggplot(data=m2_nb_2, aes(x=sweight, y=clump,group=as.factor(nb_size),color=as.factor(nb_size)))+
+  geom_line(size=1)+theme_bw()+facet_wrap(~cweight)+labs(color="Neighbourhood size",x="Survival weight",y="Clumpiness index")
+
+nb_fig_4 <- ggarrange(p4_ls1,p4_ls2,nrow=2,common.legend = TRUE, legend="bottom")
+nb_fig_4
+
+
+p5_ls1 <- ggplot(data=m2_nb, aes(x=sweight, y=hullArea/160000,group=as.factor(nb_size),color=as.factor(nb_size)))+
+  geom_line(size=1)+theme_bw()+facet_wrap(~cweight)+labs(color="Neighbourhood size",x=element_blank(),y="Geographic extent prevalence")
+p5_ls2 <- ggplot(data=m2_nb_2, aes(x=sweight, y=hullArea/160000,group=as.factor(nb_size),color=as.factor(nb_size)))+
+  geom_line(size=1)+theme_bw()+facet_wrap(~cweight)+labs(color="Neighbourhood size",x="Survival weight",y="Geographic extent prevalence")
+
+nb_fig_5 <- ggarrange(p5_ls1,p5_ls2,nrow=2,common.legend = TRUE, legend="bottom")
+nb_fig_5
+
+
+m3_nb <- nb_res %>%
+  group_by(nb_size,sweight,cweight) %>%
+  summarise_at(vars(pa_count,suit_freq), funs(sum(., na.rm=TRUE)))
+m3_nb$cweight <- paste("Colonise weight =",m3_nb$cweight)
+m3_nb_2<- nb_res_ls2 %>%
+  group_by(nb_size,sweight,cweight) %>%
+  summarise_at(vars(pa_count,suit_freq), funs(sum(., na.rm=TRUE)))
+m3_nb_2$cweight <- paste("Colonise weight =",m3_nb_2$cweight)
+
+
+p6_ls1 <- ggplot(data=m3_nb, aes(x=sweight, y=pa_count/suit_freq,group=as.factor(nb_size),color=as.factor(nb_size)))+
+   geom_line(size=1)+theme_bw()+facet_wrap(~cweight)+labs(color="Neighbourhood size",x=element_blank(),y="Occurrence prevalence")
+p6_ls2 <- ggplot(data=m3_nb_2, aes(x=sweight, y=pa_count/suit_freq,group=as.factor(nb_size),color=as.factor(nb_size)))+
+   geom_line(size=1)+theme_bw()+facet_wrap(~cweight)+labs(color="Neighbourhood size",x="Survival weight",y="Occurrence prevalence")
+nb_fig_6 <- ggarrange(p6_ls1,p6_ls2,nrow=2,common.legend = TRUE, legend="bottom")
+nb_fig_6
+
+```
+
+
+
+
+
+
+
+
+
+
+```{r  fig.height = 7,fig.width=10}
+m_in <- in_res%>% 
+  group_by(break_pt,dprob,edge,strength) %>%
+  summarise_at(vars(pa_prop,pa_prop_temp,pa_prop_hab), funs(mean(., na.rm=TRUE)))
+m_in2 <- in_res2%>% 
+  group_by(break_pt,dprob,edge,strength) %>%
+  summarise_at(vars(pa_prop,pa_prop_temp,pa_prop_hab), funs(mean(., na.rm=TRUE)))
+
+p1_ls1 <- ggplot(data=m_in, aes(x=break_pt, y=pa_prop,linetype=as.factor(strength),color=as.factor(edge))) +
+  geom_line(size=1)+theme_bw()+facet_wrap(~dprob)+labs(color="Edge",linetype="Strength",x=element_blank(),y="Relative occurrence rate")
+p1_ls2 <- ggplot(data=m_in2, aes(x=break_pt, y=pa_prop,linetype=as.factor(strength),color=as.factor(edge))) +
+  geom_line(size=1)+theme_bw()+facet_wrap(~dprob)+labs(color="Edge",linetype="Strength",x="Suitability gradient",y="Relative occurrence rate")
+in_fig_1 <- ggarrange(p1_ls1,p1_ls2,nrow=2,common.legend = TRUE, legend="bottom")
+in_fig_1
+
+p2_ls1 <- ggplot(data=m_in, aes(x=break_pt, y=pa_prop_temp,linetype=as.factor(strength),color=as.factor(edge))) +
+  geom_line(size=1)+theme_bw()+facet_wrap(~dprob)+labs(color="Edge",linetype="Strength",x=element_blank(),y="Relative occurrence rate")
+p2_ls2 <- ggplot(data=m_in2, aes(x=break_pt, y=pa_prop_temp,linetype=as.factor(strength),color=as.factor(edge))) +
+  geom_line(size=1)+theme_bw()+facet_wrap(~dprob)+labs(color="Edge",linetype="Strength",x="Temperature gradient",y="Relative occurrence rate")
+in_fig_2 <- ggarrange(p2_ls1,p2_ls2,nrow=2,common.legend = TRUE, legend="bottom")
+in_fig_2
+
+p3_ls1 <- ggplot(data=m_in, aes(x=break_pt, y=pa_prop_hab,linetype=as.factor(strength),color=as.factor(edge))) +
+  geom_line(size=1)+theme_bw()+facet_wrap(~dprob)+labs(color="Edge",linetype="Strength",x=element_blank(),y="Relative occurrence rate")
+p3_ls2 <- ggplot(data=m_in2, aes(x=break_pt, y=pa_prop_hab,linetype=as.factor(strength),color=as.factor(edge))) +
+  geom_line(size=1)+theme_bw()+facet_wrap(~dprob)+labs(color="Edge",linetype="Strength",x="Habitat gradient",y="Relative occurrence rate")
+in_fig_3 <- ggarrange(p3_ls1,p3_ls2,nrow=2,common.legend = TRUE, legend="bottom")
+in_fig_3
+
+
+m2_in <- in_res %>% 
+  group_by(strength,edge,dprob) %>%
+  summarise_at(vars(hullArea,pa_count,suit_freq), funs(mean(., na.rm=TRUE)))
+m2_in2 <- in_res2 %>% 
+  group_by(strength,edge,dprob) %>%
+  summarise_at(vars(hullArea,pa_count,suit_freq), funs(mean(., na.rm=TRUE)))
+m3_in <- in_res %>% 
+  group_by(strength,edge,dprob) %>%
+  summarise_at(vars(pa_count,suit_freq), funs(sum(., na.rm=TRUE)))
+m3_in2 <- in_res2 %>% 
+  group_by(strength,edge,dprob) %>%
+  summarise_at(vars(pa_count,suit_freq), funs(sum(., na.rm=TRUE)))
+
+p4_ls1 <- ggplot(data=m2_in, aes(x=as.factor(strength), y=hullArea,group=as.factor(edge),color=as.factor(edge))) +
+  geom_line(size=1)+theme_bw()+facet_wrap(~dprob)+labs(color="Edge",x=element_blank(),y="Geographic extent prevalence")
+p4_ls2 <- ggplot(data=m2_in2, aes(x=as.factor(strength), y=hullArea,group=as.factor(edge),color=as.factor(edge))) +
+  geom_line(size=1)+theme_bw()+facet_wrap(~dprob)+facet_wrap(~dprob)+labs(color="Edge",x="Strength",y="Geographic extent prevalence")
+in_fig_4 <- ggarrange(p4_ls1,p4_ls2,nrow=2,common.legend = TRUE, legend="bottom")
+in_fig_4
+
+p5_ls1 <- ggplot(data=m3_in, aes(x=as.factor(strength), y=pa_count/suit_freq,group=as.factor(edge),color=as.factor(edge))) +
+  geom_line(size=1)+theme_bw()+facet_wrap(~dprob)+labs(color="Edge",x=element_blank(),y="Occurrence prevalence")
+p5_ls2 <- ggplot(data=m3_in2, aes(x=as.factor(strength), y=pa_count/suit_freq,group=as.factor(edge),color=as.factor(edge))) +
+  geom_line(size=1)+theme_bw()+facet_wrap(~dprob)+facet_wrap(~dprob)+labs(color="Edge",x="Strength",y="Occurrence prevalence")
+in_fig_5 <- ggarrange(p5_ls1,p5_ls2,nrow=2,common.legend = TRUE, legend="bottom")
+in_fig_5
+
+```
