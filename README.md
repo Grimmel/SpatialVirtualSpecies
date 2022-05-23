@@ -1,6 +1,6 @@
-# CASSOM
+# SpatialVirtualSpecies
 
-CASSOM is a tool for simulating virtual species occurrence maps for use in species distribution modelling experiments.
+SpatialVirtualSpecies is a tool for simulating virtual species occurrence maps for use in species distribution modelling experiments.
 
 ## Dependencies
 This tool requires the installation of Random, Distributions and StatsBase packages for Julia
