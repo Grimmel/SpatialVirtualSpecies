@@ -26,13 +26,13 @@ The header for the file used here is 6 lines in length. This tells the getHeader
 
 
 ```julia
-include("D:/git/SpatialVirtualSpecies/src/SpatialVirtualSpecies.jl")
+include("../../src/SpatialVirtualSpecies.jl")
 using .SpatialVirtualSpecies
 using DataFrames,DelimitedFiles
 using PyPlot
 
-header = SpatialVirtualSpecies.getHeader("D:/PHDExperimentOutputs/Transferability/landscapes/suitability/suitability789.asc",6)
-suitability = readdlm("D:/PHDExperimentOutputs/Transferability/landscapes/suitability/suitability789.asc",skipstart=6)
+header = SpatialVirtualSpecies.getHeader("../../data/suitability_789.asc",6)
+suitability = readdlm("../../data/suitability_789.asc",skipstart=6)
 
 imshow(suitability)
 colorbar()
