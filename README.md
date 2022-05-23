@@ -85,7 +85,7 @@ imshow(ca.pa)
 
 
 ```julia
-imshow(ca.survivalControl_Initial)
+imshow(ca.survivalControl_Passive)
 imshow(ca.pa,cmap="gray")
 ```
 
